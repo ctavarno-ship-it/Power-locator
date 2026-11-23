@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Power Locator</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b6bcb">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#14181f;--mut:#667085;--ln:#dde1e6;--ac:#0b6bcb;--bad:#c0392b;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1318;--card:#181e26;--tx:#eef1f5;--mut:#9aa4b2;--ln:#2a323d;--ac:#5aa9ff;--bad:#ff7b6b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1318;--card:#181e26;--tx:#eef1f5;--mut:#9aa4b2;--ln:#2a323d;--ac:#5aa9ff;--bad:#ff7b6b;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--card);border-bottom:1px solid var(--ln)}
+nav{display:flex;gap:6px}nav a{padding:7px 10px;border-radius:8px;background:var(--bg);color:var(--tx);text-decoration:none;font-size:14px}
+main{padding:14px;max-width:640px;margin:0 auto}
+h2{margin:4px 0 10px}.mut{color:var(--mut);font-size:14px}
+input,textarea{width:100%;box-sizing:border-box;padding:11px;margin:4px 0 12px;border:1px solid var(--ln);border-radius:10px;background:var(--card);color:var(--tx);font:inherit}
+label{display:block;font-size:14px;color:var(--mut)}
+.btn{display:inline-block;box-sizing:border-box;padding:11px 14px;margin:4px 6px 4px 0;border:1px solid var(--ln);border-radius:10px;background:var(--card);color:var(--tx);font:inherit;text-decoration:none;cursor:pointer}
+.pri{background:var(--ac);border-color:var(--ac);color:#fff;width:100%;font-weight:600}.bad{color:var(--bad)}
+.card{display:flex;gap:12px;align-items:center;padding:10px;margin:8px 0;background:var(--card);border:1px solid var(--ln);border-radius:12px;color:var(--tx);text-decoration:none}
+.card img,.ph{width:64px;height:64px;border-radius:8px;object-fit:cover;flex:none;background:var(--bg);display:grid;place-items:center;font-size:24px}
+.box{padding:12px;margin:10px 0;background:var(--card);border:1px solid var(--ln);border-radius:12px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row{display:flex;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:8px 0}
+figure{margin:0}figure img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}figcaption{font-size:12px;color:var(--mut)}
+.mrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--ln)}
+svg{width:100%;background:var(--card);border:1px solid var(--ln);border-radius:12px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:#222;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;max-width:90%}
+</style></head><body>
+<header><b>⚡ Power Locator</b><nav><a href="#home">Search</a><a href="#add">＋ Add</a><a href="#map">Map</a><a href="#data">Data</a></nav></header>
+<main id="app"></main><div id="toast" hidden></div>
+<script>
+let db,P=[],wid=null;
+const $=s=>document.querySelector(s),app=$('#app');
+const pad=n=>String(n).padStart(5,'0'),today=()=>new Date().toISOString().slice(0,10);
+const cur=p=>(p.meters.find(m=>!m.to)||p.meters[p.meters.length-1]||{}).no||'';
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,3000)}
+function dist(a,b,c,d){const r=Math.PI/180,x=(c-a)*r,y=(d-b)*r,h=Math.sin(x/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)**2;return 12742000*Math.asin(Math.sqrt(h))}
+function openDB(){return new Promise((res,rej)=>{try{const r=indexedDB.open('powerlocator',1);r.onupgradeneeded=()=>r.result.createObjectStore('p',{keyPath:'id',autoIncrement:true});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}catch(e){rej(e)}})}
+const tx=(m,f)=>new Promise((res,rej)=>{const t=db.transaction('p',m),r=f(t.objectStore('p'));t.oncomplete=()=>res(r&&r.result);t.onerror=()=>rej(t.error)});
+async function load(){P=(await tx('readonly',s=>s.getAll()))||[]}
+async function put(p){p.updated=new Date().toISOString();const id=await tx('readwrite',s=>s.put(p));await load();return p.id||id}
+const shrink=f=>new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>{const i=new Image();i.onload=()=>{const s=Math.min(1,900/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);res(c.toDataURL('image/jpeg',.7))};i.onerror=rej;i.src=fr.result};fr.onerror=rej;fr.readAsDataURL(f)});
+function stopWatch(){if(wid!=null){navigator.geolocation.clearWatch(wid);wid=null}}
+
+function route(){stopWatch();const [k,i]=(location.hash.slice(1)||'home').split('-');
+ if(k==='add')form();else if(k==='edit')form(P.find(p=>p.id==i));else if(k==='p')detail(P.find(p=>p.id==i));else if(k==='map')map();else if(k==='data')data();else home();window.scrollTo(0,0)}
+
+let q='';
+const row=p=>`<a class="card" href="#p-${p.id}">${p.photos[0]?`<img src="${p.photos[0].d}" alt="">`:'<div class="ph">📍</div>'}<div><b>Property ${pad(p.id)}</b><div>Meter ${esc(cur(p))||'—'}</div><div class="mut">${esc(p.area)}${p.lat!=null?(p.acc?' · ±'+Math.round(p.acc)+' m':' · pinned'):' · no GPS'}</div></div></a>`;
+function home(){app.innerHTML=`<input id="q" type="search" placeholder="Search meter number, area, notes" value="${esc(q)}"><div id="list"></div>`;
+ const draw=()=>{const s=q.toLowerCase(),r=P.filter(p=>!s||[pad(p.id),p.area,p.desc].concat(p.meters.map(m=>m.no)).join(' ').toLowerCase().includes(s)).sort((a,b)=>b.updated.localeCompare(a.updated));
+  $('#list').innerHTML=r.length?r.map(row).join(''):`<p class="mut">${P.length?'No matches.':'No properties yet. Tap ＋ Add to record your first one.'}</p>`};
+ $('#q').oninput=e=>{q=e.target.value;draw()};draw()}
+
+function form(p){const d=p?structuredClone(p):{meters:[{no:'',from:today()}],area:'',desc:'',lat:null,lon:null,acc:null,photos:[],created:new Date().toISOString()};let warned=false;
+ app.innerHTML=`<h2>${p?'Edit property '+pad(p.id):'Add property'}</h2>
+ <label>Meter number<input id="mn" inputmode="numeric" value="${esc(cur(d))}"></label>
+ <label>Area / settlement<input id="ar" value="${esc(d.area)}"></label>
+ <label>Description<textarea id="ds" rows="3" placeholder="Blue house, white fence, pole across the road">${esc(d.desc)}</textarea></label>
+ <div class="box"><b>Location</b><div id="gs" class="mut"></div><button class="btn" id="gps">📍 Capture GPS</button>
+ <label>Paste coordinates or a Maps link<input id="pc" placeholder="23.512345, -75.751234"></label><a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps">🗺 Open Maps</a><div class="two"><label>Latitude<input id="la" inputmode="decimal" value="${d.lat==null?'':d.lat}"></label><label>Longitude<input id="lo" inputmode="decimal" value="${d.lon==null?'':d.lon}"></label></div></div>
+ <div class="box"><b>Photos</b><div id="pg" class="grid"></div><label class="btn">📷 Take photo<input id="pf" type="file" accept="image/*" capture="environment" hidden></label><label class="btn">🖼 From gallery<input id="pg2" type="file" accept="image/*" multiple hidden></label></div>
+ <div id="msg" class="mut"></div><button class="btn pri" id="sv">Save</button>`;
+ const showG=()=>{$('#gs').textContent=d.lat!=null?`Captured · ±${Math.round(d.acc||0)} m${d.acc>25?' (weak fix, try again in the open)':''}`:'Not captured yet'};
+ const pg=()=>{$('#pg').innerHTML=d.photos.map((x,i)=>`<figure><img src="${x.d}" alt=""><figcaption>${x.t.slice(0,10)} · <a href="#" data-i="${i}">remove</a></figcaption></figure>`).join('')};
+ showG();pg();
+ $('#pg').onclick=e=>{const i=e.target.dataset.i;if(i!=null){e.preventDefault();d.photos.splice(i,1);pg()}};
+ const addP=async e=>{for(const f of e.target.files){try{d.photos.push({d:await shrink(f),t:new Date().toISOString()})}catch(x){toast('Couldn’t read that photo')}}e.target.value='';pg()};$('#pf').onchange=addP;$('#pg2').onchange=addP;
+ $('#gps').onclick=()=>{$('#gs').textContent='Locating…';navigator.geolocation.getCurrentPosition(r=>{d.lat=+r.coords.latitude.toFixed(6);d.lon=+r.coords.longitude.toFixed(6);d.acc=r.coords.accuracy;$('#la').value=d.lat;$('#lo').value=d.lon;showG()},er=>{$('#gs').textContent=er.code===1?'Location is blocked. In Chrome tap the lock icon > Permissions > Location > Allow, or paste coordinates below.':'No GPS fix ('+er.message+'). Try outside, or type the coordinates.'},{enableHighAccuracy:true,timeout:25000,maximumAge:0})};
+ $('#pc').oninput=e=>{const m=e.target.value.match(/(-?\d{1,3}\.\d+)[,\s]+(-?\d{1,3}\.\d+)/);if(m){d.lat=+(+m[1]).toFixed(6);d.lon=+(+m[2]).toFixed(6);d.acc=null;$('#la').value=d.lat;$('#lo').value=d.lon;$('#gs').textContent='Pinned from pasted coordinates'}};$('#sv').onclick=async()=>{const no=$('#mn').value.trim();
+  const dup=no&&P.find(x=>x.id!==d.id&&x.meters.some(m=>m.no===no));
+  if(dup&&!warned){warned=true;$('#msg').textContent=`⚠ Meter ${no} is already on Property ${pad(dup.id)}. Tap Save again to keep both.`;return}
+  const k=d.meters.findIndex(m=>!m.to);d.meters[k<0?d.meters.length-1:k].no=no;
+  d.area=$('#ar').value.trim();d.desc=$('#ds').value.trim();
+  const la=parseFloat($('#la').value),lo=parseFloat($('#lo').value);d.lat=isNaN(la)?null:la;d.lon=isNaN(lo)?null:lo;
+  try{const id=await put(d);location.hash='p-'+id}catch(e){$('#msg').textContent='Couldn’t save. Phone storage may be full.'}}}
+
+function detail(p){if(!p){location.hash='home';return}let armed=false,sure=false;
+ const has=p.lat!=null;
+ app.innerHTML=`<h2>Property ${pad(p.id)}</h2><div class="mut">${esc(p.area)}</div><p>${esc(p.desc)}</p>
+ <div class="box"><b>Location</b><div>${has?`${p.lat}, ${p.lon} ${p.acc?`<span class="mut">(±${Math.round(p.acc)} m)</span>`:''}`:'No GPS saved'}</div>
+ <div class="row">${has?`<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}">🧭 Navigate</a><button class="btn" id="al">📳 Alert on arrival</button>`:''}</div><div id="dist" class="mut"></div></div>
+ <div class="box"><b>Meter history</b>${[...p.meters].reverse().map(m=>`<div class="mrow"><span>#${esc(m.no)}</span><span class="mut">${m.to?'removed '+m.to:'current · since '+m.from}</span></div>`).join('')}
+ <div id="rb"><button class="btn" id="rm">🔁 Replace meter</button></div></div>
+ <div class="box"><b>Photos</b><div class="grid">${p.photos.map(x=>`<figure><img src="${x.d}" alt=""><figcaption>${x.t.slice(0,10)}</figcaption></figure>`).join('')||'<span class="mut">None</span>'}</div></div>
+ <div class="row"><a class="btn" href="#edit-${p.id}">✏️ Edit / add photos</a><button class="btn bad" id="dl">Delete</button></div>`;
+ $('#rm').onclick=()=>{$('#rb').innerHTML='<input id="nm" inputmode="numeric" placeholder="New meter number"><button class="btn pri" id="ok">Confirm replacement</button>';
+  $('#ok').onclick=async()=>{const n=$('#nm').value.trim();if(!n)return;const c=p.meters.find(m=>!m.to);if(c)c.to=today();p.meters.push({no:n,from:today()});await put(p);detail(P.find(x=>x.id===p.id))}};
+ $('#dl').onclick=async e=>{if(!sure){sure=true;e.target.textContent='Tap again to delete';return}await tx('readwrite',s=>s.delete(p.id));await load();location.hash='home'};
+ const al=$('#al');if(al)al.onclick=()=>{if(armed){stopWatch();armed=false;al.textContent='📳 Alert on arrival';return}
+  armed=true;al.textContent='📳 Alert on · tap to cancel';toast('Keep the screen on. It will vibrate within 30 m.');
+  wid=navigator.geolocation.watchPosition(r=>{const d=dist(r.coords.latitude,r.coords.longitude,p.lat,p.lon);$('#dist').textContent=Math.round(d)+' m away';
+   if(d<=30){if(navigator.vibrate)navigator.vibrate([400,150,400,150,400]);stopWatch();armed=false;al.textContent='📳 Alert on arrival';toast('You’ve arrived')}},()=>toast('Location unavailable'),{enableHighAccuracy:true,maximumAge:2000})}}
+
+function map(){const pts=P.filter(p=>p.lat!=null);
+ app.innerHTML=`<h2>Map</h2>${pts.length?'<svg id="mp" viewBox="0 0 340 400"></svg><p class="mut">Blue dots are your saved properties, plotted from their pins on a plain background (street maps can’t load inside this page). Tap a dot to open it. Orange dot is you.</p><div id="ml"></div>':'<p class="mut">No properties with GPS yet.</p>'}`;
+ if(!pts.length)return;let me=null;
+ function draw(){const all=pts.map(p=>[p.lat,p.lon]).concat(me?[me]:[]),la=all.map(a=>a[0]),lo=all.map(a=>a[1]),k=Math.cos(la[0]*Math.PI/180),a0=Math.min(...la),a1=Math.max(...la),o0=Math.min(...lo),o1=Math.max(...lo),w=(o1-o0)*k,h=a1-a0,s=Math.min(300/Math.max(w,2e-3),360/Math.max(h,2e-3)),X=o=>20+(o-o0)*k*s+(300-w*s)/2,Y=a=>380-(a-a0)*s-(360-h*s)/2;
+  $('#mp').innerHTML=pts.map(p=>`<a href="#p-${p.id}"><circle cx="${X(p.lon)}" cy="${Y(p.lat)}" r="8" style="fill:var(--ac)"/><text x="${X(p.lon)+11}" y="${Y(p.lat)+4}" font-size="11" style="fill:var(--tx)">${esc(cur(p))}</text></a>`).join('')+(me?`<circle cx="${X(me[1])}" cy="${Y(me[0])}" r="6" fill="#f08c00" stroke="#fff" stroke-width="2"/>`:'')}
+ $('#ml').innerHTML=pts.map(p=>row(p)+`<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}">🗺 View on Google Maps</a>`).join('');draw();if(navigator.geolocation)navigator.geolocation.getCurrentPosition(r=>{me=[r.coords.latitude,r.coords.longitude];draw()},()=>{})}
+
+const csv=()=>{const c=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';return ['Property,Current meter,All meters,Area,Description,Latitude,Longitude,Accuracy m,Photos,Updated'].concat(P.map(p=>[pad(p.id),cur(p),p.meters.map(m=>m.no).join(' | '),p.area,p.desc,p.lat,p.lon,p.acc==null?'':Math.round(p.acc),p.photos.length,p.updated].map(c).join(','))).join('\n')};
+async function out(n,t,type){const f=new File([t],n,{type});
+ if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f]});return}catch(e){if(e.name==='AbortError')return}}
+ const o=$('#out');o.hidden=false;o.value=t;$('#cp').hidden=false;o.select();toast('Copy this text and paste it somewhere safe')}
+function data(){app.innerHTML=`<h2>Export &amp; backup</h2><p class="mut">${P.length} properties saved on this phone. Back up regularly: if the browser data is cleared, records are lost.</p>
+ <button class="btn" id="ec">Export CSV (Excel)</button><button class="btn" id="eb">Backup everything (JSON)</button><label class="btn">Restore backup<input id="rf" type="file" accept=".json,application/json" hidden></label>
+ <textarea id="out" rows="8" hidden readonly></textarea><button class="btn" id="cp" hidden>Copy text</button>`;
+ $('#ec').onclick=()=>out('power-locator.csv',csv(),'text/csv');
+ $('#eb').onclick=()=>out('power-locator-backup.json',JSON.stringify(P),'application/json');
+ $('#cp').onclick=async()=>{try{await navigator.clipboard.writeText($('#out').value);toast('Copied')}catch(e){$('#out').select()}};
+ $('#rf').onchange=async e=>{try{const a=JSON.parse(await e.target.files[0].text());for(const p of a)await tx('readwrite',s=>s.put(p));await load();toast('Restored '+a.length+' properties');data()}catch(x){toast('That file couldn’t be restored')}}}
+
+(async()=>{try{db=await openDB();await load();try{navigator.storage.persist()}catch(e){}}catch(e){app.innerHTML='<p>Storage isn’t available in this browser, so records can’t be saved.</p>';return}
+ window.onhashchange=route;route()})();
+if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>
